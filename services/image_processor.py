@@ -33,6 +33,10 @@ class ImageProcessor:
             'black': (0, 0, 0)
         }
         
+        # Pre-create kernels for morphological operations
+        self.noise_kernel = np.ones((5,5), np.uint8)
+        self.connect_kernel = np.ones((7,7), np.uint8)
+        
         # Define chalk detection parameters (bright white)
         self.chalk_threshold = 200  # Brightness threshold for chalk
         self.chalk_saturation_threshold = 50  # Low saturation threshold for chalk
@@ -62,7 +66,7 @@ class ImageProcessor:
         hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
         
         # Create chalk mask (bright white areas)
-        chalk_mask = (hsv[:,:,2] > self.chalk_threshold) & (hsv[:,:,1] < self.chalk_saturation_threshold)
+        chalk_mask = cv2.inRange(hsv, (0, 0, self.chalk_threshold), (180, self.chalk_saturation_threshold, 255))
         
         results = {}
         
@@ -71,17 +75,20 @@ class ImageProcessor:
                 return {}
                 
             # Create mask for current color
-            lower = np.array(lower)
-            upper = np.array(upper)
-            mask = cv2.inRange(hsv, lower, upper)
+            color_mask = cv2.inRange(hsv, np.array(lower), np.array(upper))
             
             # Apply morphological operations to reduce noise
-            kernel = np.ones((5,5), np.uint8)
-            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+            color_mask = cv2.morphologyEx(color_mask, cv2.MORPH_OPEN, self.noise_kernel)
+            color_mask = cv2.morphologyEx(color_mask, cv2.MORPH_CLOSE, self.noise_kernel)
+            
+            # Combine color mask with chalk mask
+            combined_mask = cv2.bitwise_or(color_mask, chalk_mask)
+            
+            # Connect chalk areas with holds
+            combined_mask = cv2.morphologyEx(combined_mask, cv2.MORPH_CLOSE, self.connect_kernel)
             
             # Find contours
-            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            contours, _ = cv2.findContours(combined_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             
             holds = []
             for contour in contours:
@@ -92,29 +99,20 @@ class ImageProcessor:
                 if cv2.contourArea(contour) < 100:  # Adjust threshold as needed
                     continue
                 
-                # Create a mask for this specific contour
-                contour_mask = np.zeros_like(mask, dtype=np.uint8)
-                cv2.drawContours(contour_mask, [contour], -1, 255, -1)
+                # Get the average color within the contour (from non-chalk areas)
+                non_chalk_mask = np.zeros_like(color_mask, dtype=np.uint8)
+                cv2.drawContours(non_chalk_mask, [contour], -1, 255, -1)
+                non_chalk_mask = cv2.bitwise_and(non_chalk_mask, cv2.bitwise_not(chalk_mask))
                 
-                # Get the average color within the contour (excluding chalk)
-                valid_pixels = contour_mask > 0
-                valid_pixels[chalk_mask] = 0
-                
-                if np.any(valid_pixels):
-                    mean_color = cv2.mean(img, mask=valid_pixels.astype(np.uint8))[:3]
+                if cv2.countNonZero(non_chalk_mask) > 0:
+                    mean_color = cv2.mean(img, mask=non_chalk_mask)[:3]
                 else:
-                    # If all pixels are chalk, use the predefined color
-                    mean_color = self.visualization_colors.get(color, (0, 0, 0))
+                    mean_color = self.visualization_colors[color]
                 
-                # Get bounding box
+                # Get bounding box and center point
                 x, y, w, h = cv2.boundingRect(contour)
-                
-                # Calculate center point
                 center_x = x + w // 2
                 center_y = y + h // 2
-                
-                # Convert contour to list of points for JSON serialization
-                contour_points = contour.reshape(-1, 2).tolist()
                 
                 holds.append({
                     "position": {
@@ -125,8 +123,8 @@ class ImageProcessor:
                         "width": int(w),
                         "height": int(h)
                     },
-                    "contour": contour_points,
-                    "color": [int(c) for c in mean_color]  # Store the average color
+                    "contour": contour.reshape(-1, 2).tolist(),
+                    "color": [int(c) for c in mean_color]
                 })
             
             if holds:
