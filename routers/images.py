@@ -7,6 +7,7 @@ import platform
 import psutil
 import os
 from datetime import datetime
+import asyncio
 
 router = APIRouter()
 image_processor = ImageProcessor()
@@ -56,9 +57,12 @@ async def identify_route(
         raise HTTPException(status_code=400, detail="File must be an image")
     
     try:
+        # Create cancellation token
+        cancel_token = asyncio.Event()
+        
         # Read the image data
         contents = await file.read()
-        result = image_processor.get_route_by_color(contents, color.lower())
+        result = await image_processor.get_route_by_color(contents, color.lower(), cancel_token)
         logger.info(f"Successfully identified {len(result.get('holds', []))} holds of color {color}")
         return result
     except ValueError as e:
@@ -88,9 +92,12 @@ async def identify_all_routes(
         raise HTTPException(status_code=400, detail="File must be an image")
     
     try:
+        # Create cancellation token
+        cancel_token = asyncio.Event()
+        
         # Read the image data
         contents = await file.read()
-        results = image_processor.identify_all_routes(contents)
+        results = await image_processor.identify_all_routes(contents, cancel_token)
         
         # Log the number of holds found for each color
         for color, holds in results.items():

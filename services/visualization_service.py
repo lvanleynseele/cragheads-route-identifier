@@ -39,35 +39,22 @@ class VisualizationService:
         
         # Draw each hold in its identified color
         for color, holds in holds_by_color.items():
-            bgr_color = self.visualization_colors[color]
             for hold in holds:
-                # Get the contour points if available
-                if 'contour' in hold:
-                    contour = np.array(hold['contour'], dtype=np.int32)
-                    # Draw filled contour
-                    cv2.drawContours(visualization, [contour], -1, bgr_color, -1)
-                    # Draw outline
-                    cv2.drawContours(visualization, [contour], -1, (255, 255, 255), 2)
-                else:
-                    # Fallback to rectangle if contour is not available
-                    x = hold["position"]["x"]
-                    y = hold["position"]["y"]
-                    w = hold["size"]["width"]
-                    h = hold["size"]["height"]
-                    
-                    # Draw filled rectangle
-                    cv2.rectangle(visualization, 
-                                (x - w//2, y - h//2),
-                                (x + w//2, y + h//2),
-                                bgr_color,
-                                -1)
-                    
-                    # Draw outline
-                    cv2.rectangle(visualization,
-                                (x - w//2, y - h//2),
-                                (x + w//2, y + h//2),
-                                (255, 255, 255),
-                                2)
+                # Use the hold's actual color if available, otherwise use the predefined color
+                hold_color = tuple(int(c) for c in hold.get('color', self.visualization_colors[color]))
+                
+                # Get the contour points
+                contour = np.array(hold['contour'], dtype=np.int32)
+                
+                # Create a mask for the contour
+                mask = np.zeros((height, width), dtype=np.uint8)
+                cv2.drawContours(mask, [contour], -1, 255, -1)
+                
+                # Fill the contour with the hold's color
+                visualization[mask == 255] = hold_color
+                
+                # Draw outline
+                cv2.drawContours(visualization, [contour], -1, (255, 255, 255), 2)
         
         # Convert the visualization to base64
         _, buffer = cv2.imencode('.png', visualization)
@@ -93,40 +80,22 @@ class VisualizationService:
         
         # Draw each hold in its identified color
         for color, holds in holds_by_color.items():
-            bgr_color = self.visualization_colors[color]
             for hold in holds:
-                # Get the contour points if available
-                if 'contour' in hold:
-                    contour = np.array(hold['contour'], dtype=np.int32)
-                    # Create a mask for the contour
-                    mask = np.zeros_like(visualization)
-                    cv2.drawContours(mask, [contour], -1, bgr_color, -1)
-                    # Apply transparency
-                    cv2.addWeighted(mask, 0.3, visualization, 0.7, 0, visualization)
-                    # Draw outline
-                    cv2.drawContours(visualization, [contour], -1, bgr_color, 2)
-                else:
-                    # Fallback to rectangle if contour is not available
-                    x = hold["position"]["x"]
-                    y = hold["position"]["y"]
-                    w = hold["size"]["width"]
-                    h = hold["size"]["height"]
-                    
-                    # Draw filled rectangle with transparency
-                    overlay = visualization.copy()
-                    cv2.rectangle(overlay, 
-                                (x - w//2, y - h//2),
-                                (x + w//2, y + h//2),
-                                bgr_color,
-                                -1)
-                    cv2.addWeighted(overlay, 0.3, visualization, 0.7, 0, visualization)
-                    
-                    # Draw outline
-                    cv2.rectangle(visualization,
-                                (x - w//2, y - h//2),
-                                (x + w//2, y + h//2),
-                                bgr_color,
-                                2)
+                # Use the hold's actual color if available, otherwise use the predefined color
+                hold_color = tuple(int(c) for c in hold.get('color', self.visualization_colors[color]))
+                
+                # Get the contour points
+                contour = np.array(hold['contour'], dtype=np.int32)
+                
+                # Create a mask for the contour
+                mask = np.zeros_like(visualization)
+                cv2.drawContours(mask, [contour], -1, hold_color, -1)
+                
+                # Apply transparency
+                cv2.addWeighted(mask, 0.3, visualization, 0.7, 0, visualization)
+                
+                # Draw outline
+                cv2.drawContours(visualization, [contour], -1, hold_color, 2)
         
         # Convert the visualization to base64
         _, buffer = cv2.imencode('.png', visualization)

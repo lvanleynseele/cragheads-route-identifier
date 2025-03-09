@@ -6,6 +6,7 @@ from utils.logger import logger
 import base64
 import os
 from datetime import datetime
+import asyncio
 
 router = APIRouter()
 image_processor = ImageProcessor()
@@ -63,9 +64,12 @@ async def visualize_route(
         raise HTTPException(status_code=400, detail="File must be an image")
     
     try:
+        # Create cancellation token
+        cancel_token = asyncio.Event()
+        
         # Read the image data
         contents = await file.read()
-        result = image_processor.get_route_by_color(contents, color.lower())
+        result = await image_processor.get_route_by_color(contents, color.lower(), cancel_token)
         
         # Create visualization
         holds_by_color = {color: result.get('holds', [])}
@@ -108,9 +112,12 @@ async def visualize_all_routes(
         raise HTTPException(status_code=400, detail="File must be an image")
     
     try:
+        # Create cancellation token
+        cancel_token = asyncio.Event()
+        
         # Read the image data
         contents = await file.read()
-        results = image_processor.identify_all_routes(contents)
+        results = await image_processor.identify_all_routes(contents, cancel_token)
         
         # Create visualization
         if overlay:
