@@ -1,0 +1,3 @@
+2025-03-09 13:22:32,244 - utils.logger - INFO - Health check request received
+2025-03-09 13:24:04,118 - utils.logger - INFO - Received route identification request - Color: orange, File: IMG_3988.jpeg
+2025-03-09 13:24:04,337 - utils.logger - INFO - Successfully identified 7 holds of color orange
