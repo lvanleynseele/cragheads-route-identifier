@@ -40,18 +40,18 @@ class VisualizationService:
         # Draw each hold in its identified color
         for color, holds in holds_by_color.items():
             for hold in holds:
-                # Use the hold's actual color if available, otherwise use the predefined color
-                hold_color = tuple(int(c) for c in hold.get('color', self.visualization_colors[color]))
-                
                 # Get the contour points
                 contour = np.array(hold['contour'], dtype=np.int32)
                 
-                # Create a mask for the contour
-                mask = np.zeros((height, width), dtype=np.uint8)
-                cv2.drawContours(mask, [contour], -1, 255, -1)
+                # Get the hold's color
+                hold_color = tuple(int(c) for c in hold['color'])
                 
-                # Fill the contour with the hold's color
-                visualization[mask == 255] = hold_color
+                # Create a mask for the entire hold (including chalk)
+                hold_mask = np.zeros((height, width), dtype=np.uint8)
+                cv2.drawContours(hold_mask, [contour], -1, 255, -1)
+                
+                # Fill the entire hold area with the hold's color
+                visualization[hold_mask == 255] = hold_color
                 
                 # Draw outline
                 cv2.drawContours(visualization, [contour], -1, (255, 255, 255), 2)
@@ -81,18 +81,18 @@ class VisualizationService:
         # Draw each hold in its identified color
         for color, holds in holds_by_color.items():
             for hold in holds:
-                # Use the hold's actual color if available, otherwise use the predefined color
-                hold_color = tuple(int(c) for c in hold.get('color', self.visualization_colors[color]))
-                
                 # Get the contour points
                 contour = np.array(hold['contour'], dtype=np.int32)
                 
-                # Create a mask for the contour
-                mask = np.zeros_like(visualization)
-                cv2.drawContours(mask, [contour], -1, hold_color, -1)
+                # Get the hold's color
+                hold_color = tuple(int(c) for c in hold['color'])
+                
+                # Create a mask for the entire hold (including chalk)
+                hold_mask = np.zeros_like(visualization)
+                cv2.drawContours(hold_mask, [contour], -1, hold_color, -1)
                 
                 # Apply transparency
-                cv2.addWeighted(mask, 0.3, visualization, 0.7, 0, visualization)
+                cv2.addWeighted(hold_mask, 0.3, visualization, 0.7, 0, visualization)
                 
                 # Draw outline
                 cv2.drawContours(visualization, [contour], -1, hold_color, 2)

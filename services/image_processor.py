@@ -36,9 +36,10 @@ class ImageProcessor:
         # Pre-create kernels for morphological operations
         self.noise_kernel = np.ones((5,5), np.uint8)
         self.connect_kernel = np.ones((7,7), np.uint8)
+        self.dilate_kernel = np.ones((15,15), np.uint8)  # For expanding hold area to find nearby chalk
         
         # Define chalk detection parameters (bright white)
-        self.chalk_threshold = 200  # Brightness threshold for chalk
+        self.chalk_threshold = 100  # Brightness threshold for chalk
         self.chalk_saturation_threshold = 50  # Low saturation threshold for chalk
         self._executor = ThreadPoolExecutor(max_workers=1)
 
@@ -81,13 +82,29 @@ class ImageProcessor:
             color_mask = cv2.morphologyEx(color_mask, cv2.MORPH_OPEN, self.noise_kernel)
             color_mask = cv2.morphologyEx(color_mask, cv2.MORPH_CLOSE, self.noise_kernel)
             
-            # Combine color mask with chalk mask
-            combined_mask = cv2.bitwise_or(color_mask, chalk_mask)
+            # Find initial contours for the colored areas
+            initial_contours, _ = cv2.findContours(color_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            
+            # Create a mask of the hold areas slightly expanded
+            hold_area_mask = np.zeros_like(color_mask)
+            for contour in initial_contours:
+                if cv2.contourArea(contour) < 100:  # Filter small contours
+                    continue
+                cv2.drawContours(hold_area_mask, [contour], -1, 255, -1)
+            
+            # Dilate the hold area mask to include nearby chalk
+            dilated_hold_mask = cv2.dilate(hold_area_mask, self.dilate_kernel, iterations=1)
+            
+            # Only keep chalk that's on or near holds
+            valid_chalk_mask = cv2.bitwise_and(chalk_mask, dilated_hold_mask)
+            
+            # Combine color mask with valid chalk
+            combined_mask = cv2.bitwise_or(color_mask, valid_chalk_mask)
             
             # Connect chalk areas with holds
             combined_mask = cv2.morphologyEx(combined_mask, cv2.MORPH_CLOSE, self.connect_kernel)
             
-            # Find contours
+            # Find final contours
             contours, _ = cv2.findContours(combined_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             
             holds = []
@@ -99,11 +116,14 @@ class ImageProcessor:
                 if cv2.contourArea(contour) < 100:  # Adjust threshold as needed
                     continue
                 
-                # Get the average color within the contour (from non-chalk areas)
-                non_chalk_mask = np.zeros_like(color_mask, dtype=np.uint8)
-                cv2.drawContours(non_chalk_mask, [contour], -1, 255, -1)
-                non_chalk_mask = cv2.bitwise_and(non_chalk_mask, cv2.bitwise_not(chalk_mask))
+                # Create a mask for this specific contour
+                contour_mask = np.zeros_like(color_mask, dtype=np.uint8)
+                cv2.drawContours(contour_mask, [contour], -1, 255, -1)
                 
+                # Get the average color from the non-chalk areas
+                non_chalk_mask = cv2.bitwise_and(contour_mask, cv2.bitwise_not(chalk_mask))
+                
+                # If there are non-chalk pixels, use their color, otherwise use the predefined color
                 if cv2.countNonZero(non_chalk_mask) > 0:
                     mean_color = cv2.mean(img, mask=non_chalk_mask)[:3]
                 else:
