@@ -65,6 +65,9 @@ class ImageProcessor:
                 center_x = x + w // 2
                 center_y = y + h // 2
                 
+                # Convert contour to list of points for JSON serialization
+                contour_points = contour.reshape(-1, 2).tolist()
+                
                 holds.append({
                     "position": {
                         "x": int(center_x),
@@ -73,7 +76,8 @@ class ImageProcessor:
                     "size": {
                         "width": int(w),
                         "height": int(h)
-                    }
+                    },
+                    "contour": contour_points
                 })
             
             if holds:
