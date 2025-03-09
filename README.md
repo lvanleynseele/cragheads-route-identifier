@@ -79,6 +79,7 @@ Log files are named in the format: `app_YYYYMMDD_HHMMSS.log`
 - `GET /api/v1/health`: Health check endpoint with system information
 - `POST /api/v1/upload`: Upload an image file
 - `POST /api/v1/identify-route`: Identify climbing holds of a specific color in an image
+- `POST /api/v1/identify-all-routes`: Identify all climbing holds in an image, grouped by color
 
 ## Health Check
 
@@ -115,6 +116,8 @@ The `/api/v1/health` endpoint provides comprehensive system and service informat
 
 ## Route Identification
 
+### Single Color Route Identification
+
 The `/api/v1/identify-route` endpoint accepts:
 
 - An image file
@@ -146,9 +149,51 @@ Example response:
 }
 ```
 
+### All Routes Identification
+
+The `/api/v1/identify-all-routes` endpoint accepts:
+
+- An image file
+
+The endpoint returns:
+
+- A dictionary of all identified holds, grouped by color
+
+Example response:
+
+```json
+{
+  "red": [
+    {
+      "position": {
+        "x": 100,
+        "y": 200
+      },
+      "size": {
+        "width": 30,
+        "height": 30
+      }
+    }
+  ],
+  "blue": [
+    {
+      "position": {
+        "x": 150,
+        "y": 250
+      },
+      "size": {
+        "width": 25,
+        "height": 25
+      }
+    }
+  ]
+  // ... more colors
+}
+```
+
 ## Making API Calls with Postman
 
-To test the route identification endpoint using Postman:
+### Single Color Route Identification
 
 1. Create a new POST request to `http://localhost:3020/api/v1/identify-route`
 2. In the request body:
@@ -167,6 +212,24 @@ URL: http://localhost:3020/api/v1/identify-route
 Body: form-data
   - file: [Select File] (your image)
   - color: red
+```
+
+### All Routes Identification
+
+1. Create a new POST request to `http://localhost:3020/api/v1/identify-all-routes`
+2. In the request body:
+   - Select "form-data"
+   - Add one key-value pair:
+     - Key: `file` (Important: Click the dropdown on the right of the key field and select "File")
+       - Value: Select your image file
+
+Example Postman setup:
+
+```
+Method: POST
+URL: http://localhost:3020/api/v1/identify-all-routes
+Body: form-data
+  - file: [Select File] (your image)
 ```
 
 ## API Documentation

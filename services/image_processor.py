@@ -99,4 +99,16 @@ class ImageProcessor:
         return {
             "color": target_color,
             "holds": results.get(target_color, [])
-        } 
+        }
+
+    def identify_all_routes(self, image_data: bytes) -> Dict[str, List[Dict[str, any]]]:
+        """
+        Identify all climbing holds in the image, grouped by color.
+        
+        Args:
+            image_data: Raw image data in bytes
+            
+        Returns:
+            Dictionary containing all identified holds grouped by color
+        """
+        return self.process_image(image_data) 
