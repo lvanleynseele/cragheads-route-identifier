@@ -7,6 +7,7 @@ import platform
 import psutil
 import os
 from datetime import datetime
+import asyncio
 
 router = APIRouter()
 image_processor = ImageProcessor()
@@ -56,14 +57,53 @@ async def identify_route(
         raise HTTPException(status_code=400, detail="File must be an image")
     
     try:
+        # Create cancellation token
+        cancel_token = asyncio.Event()
+        
         # Read the image data
         contents = await file.read()
-        result = image_processor.get_route_by_color(contents, color.lower())
+        result = await image_processor.get_route_by_color(contents, color.lower(), cancel_token)
         logger.info(f"Successfully identified {len(result.get('holds', []))} holds of color {color}")
         return result
     except ValueError as e:
         logger.error(f"Invalid color parameter: {color}")
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error processing image: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error processing image: {str(e)}")
+
+@router.post("/identify-all-routes")
+async def identify_all_routes(
+    file: UploadFile = File(...)
+) -> Dict[str, List[Dict[str, Any]]]:
+    """
+    Identify all climbing holds in the image, grouped by color.
+    
+    Args:
+        file: The image file to process
+        
+    Returns:
+        Dictionary containing all identified holds grouped by color
+    """
+    logger.info(f"Received all-routes identification request - File: {file.filename}")
+    
+    if not file.content_type.startswith('image/'):
+        logger.error(f"Invalid file type received: {file.content_type}")
+        raise HTTPException(status_code=400, detail="File must be an image")
+    
+    try:
+        # Create cancellation token
+        cancel_token = asyncio.Event()
+        
+        # Read the image data
+        contents = await file.read()
+        results = await image_processor.identify_all_routes(contents, cancel_token)
+        
+        # Log the number of holds found for each color
+        for color, holds in results.items():
+            logger.info(f"Identified {len(holds)} holds of color {color}")
+            
+        return results
     except Exception as e:
         logger.error(f"Error processing image: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error processing image: {str(e)}")
