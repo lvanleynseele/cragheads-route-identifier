@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException, Form
+from fastapi import APIRouter, UploadFile, File, HTTPException, Form, Request, BackgroundTasks
 from typing import Dict, List, Any
 from services.image_processor import ImageProcessor
 from services.visualization_service import VisualizationService
@@ -7,6 +7,7 @@ import base64
 import os
 from datetime import datetime
 import asyncio
+import time
 
 router = APIRouter()
 image_processor = ImageProcessor()
@@ -42,21 +43,24 @@ def save_visualization(base64_string: str, prefix: str = "visualization") -> str
 
 @router.post("/visualize-route")
 async def visualize_route(
+    request: Request,
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    color: str = Form(...),
-    overlay: bool = Form(False)
-) -> str:
+    color: str = Form(...)
+) -> Dict[str, Any]:
     """
-    Identify and visualize climbing holds of a specific color in the uploaded image.
+    Create a visualization of climbing holds of a specific color.
     
     Args:
+        request: FastAPI request object for cancellation handling
+        background_tasks: BackgroundTasks for cleanup
         file: The image file to process
-        color: The color of holds to identify
-        overlay: Whether to overlay the holds on the original image
+        color: The color of holds to visualize
         
     Returns:
-        Base64 encoded image string of the visualization
+        Dict containing the identified holds and visualization
     """
+    start_time = time.time()
     logger.info(f"Received route visualization request - Color: {color}, File: {file.filename}")
     
     if not file.content_type.startswith('image/'):
@@ -67,44 +71,113 @@ async def visualize_route(
         # Create cancellation token
         cancel_token = asyncio.Event()
         
+        # Add cleanup to background tasks
+        async def cleanup():
+            if not cancel_token.is_set():
+                cancel_token.set()
+                duration = time.time() - start_time
+                logger.info(f"Request cancelled after {duration:.2f} seconds")
+        
+        background_tasks.add_task(cleanup)
+        
         # Read the image data
         contents = await file.read()
-        result = await image_processor.get_route_by_color(contents, color.lower(), cancel_token)
         
-        # Create visualization
-        holds_by_color = {color: result.get('holds', [])}
-        if overlay:
-            visualization = visualization_service.create_overlay_visualization(contents, holds_by_color)
-        else:
-            visualization = visualization_service.create_hold_visualization(contents, holds_by_color)
+        # Process the image with cancellation check
+        async def process_with_cancel():
+            try:
+                # Check if already disconnected
+                if await request.is_disconnected():
+                    duration = time.time() - start_time
+                    logger.info(f"Client already disconnected after {duration:.2f} seconds")
+                    cancel_token.set()
+                    raise HTTPException(status_code=499, detail="Client disconnected")
+                
+                # Identify holds
+                holds_result = await image_processor.get_route_by_color(contents, color.lower(), cancel_token)
+                
+                if await request.is_disconnected():
+                    duration = time.time() - start_time
+                    logger.info(f"Client disconnected during processing after {duration:.2f} seconds")
+                    cancel_token.set()
+                    raise HTTPException(status_code=499, detail="Client disconnected")
+                
+                # Create visualization
+                visualization = await visualization_service.create_hold_visualization(
+                    contents,
+                    holds_result['holds'],
+                    color.lower(),
+                    cancel_token
+                )
+                
+                if await request.is_disconnected():
+                    duration = time.time() - start_time
+                    logger.info(f"Client disconnected during processing after {duration:.2f} seconds")
+                    cancel_token.set()
+                    raise HTTPException(status_code=499, detail="Client disconnected")
+                
+                # Create overlay visualization
+                overlay = await visualization_service.create_overlay_visualization(
+                    contents,
+                    holds_result['holds'],
+                    color.lower(),
+                    cancel_token
+                )
+                
+                result = {
+                    **holds_result,
+                    'visualization': visualization,
+                    'overlay': overlay
+                }
+                
+                duration = time.time() - start_time
+                logger.info(f"Successfully created visualization for {len(holds_result['holds'])} holds of color {color} in {duration:.2f} seconds")
+                return result
+                
+            except asyncio.CancelledError:
+                duration = time.time() - start_time
+                logger.info(f"Processing cancelled after {duration:.2f} seconds")
+                cancel_token.set()
+                raise HTTPException(status_code=499, detail="Request cancelled")
+            except ValueError as e:
+                duration = time.time() - start_time
+                logger.error(f"Invalid color parameter after {duration:.2f} seconds: {color}")
+                raise HTTPException(status_code=400, detail=str(e))
         
-        # Save the visualization
-        filename = save_visualization(visualization, f"route_{color}")
-        
-        logger.info(f"Successfully identified and visualized {len(result.get('holds', []))} holds of color {color}")
-        return visualization
+        return await process_with_cancel()
+    
+    except asyncio.CancelledError:
+        duration = time.time() - start_time
+        logger.info(f"Request cancelled after {duration:.2f} seconds")
+        cancel_token.set()
+        raise HTTPException(status_code=499, detail="Request cancelled")
     except ValueError as e:
-        logger.error(f"Invalid color parameter: {color}")
+        duration = time.time() - start_time
+        logger.error(f"Invalid color parameter after {duration:.2f} seconds: {color}")
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"Error processing image: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error processing image: {str(e)}")
+        duration = time.time() - start_time
+        logger.error(f"Error creating visualization after {duration:.2f} seconds: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error creating visualization: {str(e)}")
 
 @router.post("/visualize-all-routes")
 async def visualize_all_routes(
-    file: UploadFile = File(...),
-    overlay: bool = Form(False)
-) -> str:
+    request: Request,
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...)
+) -> Dict[str, Any]:
     """
-    Identify and visualize all climbing holds in the image, grouped by color.
+    Create a visualization of all climbing holds in the image.
     
     Args:
+        request: FastAPI request object for cancellation handling
+        background_tasks: BackgroundTasks for cleanup
         file: The image file to process
-        overlay: Whether to overlay the holds on the original image
         
     Returns:
-        Base64 encoded image string of the visualization
+        Dict containing all identified holds and visualizations
     """
+    start_time = time.time()
     logger.info(f"Received all-routes visualization request - File: {file.filename}")
     
     if not file.content_type.startswith('image/'):
@@ -115,24 +188,95 @@ async def visualize_all_routes(
         # Create cancellation token
         cancel_token = asyncio.Event()
         
+        # Add cleanup to background tasks
+        async def cleanup():
+            if not cancel_token.is_set():
+                cancel_token.set()
+                duration = time.time() - start_time
+                logger.info(f"Request cancelled after {duration:.2f} seconds")
+        
+        background_tasks.add_task(cleanup)
+        
         # Read the image data
         contents = await file.read()
-        results = await image_processor.identify_all_routes(contents, cancel_token)
         
-        # Create visualization
-        if overlay:
-            visualization = visualization_service.create_overlay_visualization(contents, results)
-        else:
-            visualization = visualization_service.create_hold_visualization(contents, results)
+        # Process the image with cancellation check
+        async def process_with_cancel():
+            try:
+                # Check if already disconnected
+                if await request.is_disconnected():
+                    duration = time.time() - start_time
+                    logger.info(f"Client already disconnected after {duration:.2f} seconds")
+                    cancel_token.set()
+                    raise HTTPException(status_code=499, detail="Client disconnected")
+                
+                # Identify all holds
+                holds_by_color = await image_processor.identify_all_routes(contents, cancel_token)
+                
+                if await request.is_disconnected():
+                    duration = time.time() - start_time
+                    logger.info(f"Client disconnected during processing after {duration:.2f} seconds")
+                    cancel_token.set()
+                    raise HTTPException(status_code=499, detail="Client disconnected")
+                
+                # Create visualizations for each color
+                visualizations = {}
+                overlays = {}
+                
+                for color, holds in holds_by_color.items():
+                    if await request.is_disconnected():
+                        duration = time.time() - start_time
+                        logger.info(f"Client disconnected during processing after {duration:.2f} seconds")
+                        cancel_token.set()
+                        raise HTTPException(status_code=499, detail="Client disconnected")
+                    
+                    visualizations[color] = await visualization_service.create_hold_visualization(
+                        contents,
+                        holds,
+                        color,
+                        cancel_token
+                    )
+                    
+                    if await request.is_disconnected():
+                        duration = time.time() - start_time
+                        logger.info(f"Client disconnected during processing after {duration:.2f} seconds")
+                        cancel_token.set()
+                        raise HTTPException(status_code=499, detail="Client disconnected")
+                    
+                    overlays[color] = await visualization_service.create_overlay_visualization(
+                        contents,
+                        holds,
+                        color,
+                        cancel_token
+                    )
+                
+                result = {
+                    'holds': holds_by_color,
+                    'visualizations': visualizations,
+                    'overlays': overlays
+                }
+                
+                # Log the number of holds found for each color
+                duration = time.time() - start_time
+                for color, holds in holds_by_color.items():
+                    logger.info(f"Created visualization for {len(holds)} holds of color {color} in {duration:.2f} seconds")
+                
+                return result
+                
+            except asyncio.CancelledError:
+                duration = time.time() - start_time
+                logger.info(f"Processing cancelled after {duration:.2f} seconds")
+                cancel_token.set()
+                raise HTTPException(status_code=499, detail="Request cancelled")
         
-        # Save the visualization
-        filename = save_visualization(visualization, "all_routes")
-        
-        # Log the number of holds found for each color
-        for color, holds in results.items():
-            logger.info(f"Identified {len(holds)} holds of color {color}")
-        
-        return visualization
+        return await process_with_cancel()
+    
+    except asyncio.CancelledError:
+        duration = time.time() - start_time
+        logger.info(f"Request cancelled after {duration:.2f} seconds")
+        cancel_token.set()
+        raise HTTPException(status_code=499, detail="Request cancelled")
     except Exception as e:
-        logger.error(f"Error processing image: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error processing image: {str(e)}") 
+        duration = time.time() - start_time
+        logger.error(f"Error creating visualization after {duration:.2f} seconds: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error creating visualization: {str(e)}") 

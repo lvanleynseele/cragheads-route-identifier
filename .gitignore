@@ -179,4 +179,8 @@ cython_debug/
 .vscode/
 
 # macOS
-.DS_Store 
+.DS_Store
+
+# Project specific
+Images/
+visualizations/ 
